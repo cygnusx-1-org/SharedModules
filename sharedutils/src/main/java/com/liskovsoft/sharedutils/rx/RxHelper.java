@@ -36,6 +36,7 @@ public class RxHelper {
 
     private static Scheduler getCachedScheduler() {
         if (sCachedScheduler == null) {
+            // OLD CODE
             // sCachedScheduler = Schedulers.from(Executors.newCachedThreadPool());
             int cores = Runtime.getRuntime().availableProcessors();
             int corePoolSize = Math.max(2, Math.min(4, cores));

@@ -2383,4 +2383,17 @@ public final class Helpers {
 
         array[to] = item;
     }
+
+    public static int compareToIgnoreCase(String name1, String name2) {
+        if (name1 == null && name2 == null) {
+            return 0;
+        }
+        if (name1 == null) {
+            return -1; // nulls first
+        }
+        if (name2 == null) {
+            return 1;
+        }
+        return name1.compareToIgnoreCase(name2);
+    }
 }
