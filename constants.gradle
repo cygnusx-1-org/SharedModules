@@ -19,14 +19,16 @@ project.ext {
     // - No popup notifications
     // - Backup/restore can access to the external directory
     // - Disabled auto start of the background service (e.g. remote control service)
-    targetSdkVersion = 27 // 29 latest with lecacy storage access, 27 - latest with mouse dpad emulaton
+    targetSdkVersion = 34 // 29 latest with lecacy storage access, 27 - latest with mouse dpad emulaton
     compileSdkVersion = 34
     buildToolsVersion = '30.0.3'
     //gradleVersion = '6.9.1' // https://developer.android.com/studio/releases/gradle-plugin#updating-gradle
     //androidGradleVersion = '4.0.0+' // last version compatible with IntellJ 2020.3
     
     testSupportVersion = '0.5'
-    testXSupportVersion = '1.1.0'
+    // 1.5+ declares android:exported on its test activities (required when targeting API 31+)
+    testXSupportVersion = '1.5.0'
+    testXExtJunitVersion = '1.1.5' // androidx.test.ext:junit has its own numbering
     kotlinVersion = '1.8.10' // latest for android-gradle 4.0.0 https://mvnrepository.com/artifact/org.jetbrains.kotlin/kotlin-stdlib-jdk7
     kotlinxVersion = '1.7.3' // https://mvnrepository.com/artifact/org.jetbrains.kotlinx/kotlinx-coroutines-android
     // NOTE: Kotlin core 1.7.0 has 'resource android:attr/lStar not found' error (dialog black background bug)
@@ -75,7 +77,7 @@ project.ext {
     // cronetApiVersion = '75.3770.101' // the fastest one (best choice)
     cronetOkHttpVersion = '0.1.0'
     
-    espressoVersion = '3.2.0'
+    espressoVersion = '3.5.1'
     retrofitVersion = '2.5.0'
     gsonVersion = '2.8.2'
     jsonPathVersion = '2.4.0'

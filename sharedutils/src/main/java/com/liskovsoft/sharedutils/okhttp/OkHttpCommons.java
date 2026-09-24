@@ -44,6 +44,8 @@ final class OkHttpCommons {
     public static final long READ_TIMEOUT_MS = 20_000;
     public static final long WRITE_TIMEOUT_MS = 20_000;
     public static boolean enableProfiler = true;
+    // Debug builds only. Off: the profiler queues every response body (video segments too) and can run out of memory.
+    public static boolean enableLogging = false;
 
     private OkHttpCommons() {
 
@@ -318,7 +320,7 @@ final class OkHttpCommons {
     }
 
     private static void debugSetup(OkHttpClient.Builder okBuilder) {
-        if (BuildConfig.DEBUG) {
+        if (BuildConfig.DEBUG && enableLogging) {
             // Profiler could cause OutOfMemoryError when testing.
             // Also outputs to logcat tons of info.
             // If you enable it to all requests - expect slowdowns.
