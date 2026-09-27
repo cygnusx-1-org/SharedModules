@@ -2,6 +2,7 @@ apply from: '../constants.gradle'
 apply plugin: 'com.android.library'
 
 android {
+    namespace 'com.liskovsoft.appupdatechecker2'
     // FIX: Default interface methods are only supported starting with Android N (--min-api 24)
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
@@ -27,7 +28,7 @@ android {
     buildTypes {
         release {
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
 

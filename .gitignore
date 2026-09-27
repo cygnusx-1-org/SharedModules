@@ -26,3 +26,5 @@ tmp/
 .externalNativeBuild
 fabric.properties
 *BAK.java
+
+backup/

@@ -29,7 +29,7 @@ project.ext {
     // 1.5+ declares android:exported on its test activities (required when targeting API 31+)
     testXSupportVersion = '1.5.0'
     testXExtJunitVersion = '1.1.5' // androidx.test.ext:junit has its own numbering
-    kotlinVersion = '1.8.10' // latest for android-gradle 4.0.0 https://mvnrepository.com/artifact/org.jetbrains.kotlin/kotlin-stdlib-jdk7
+    kotlinVersion = '2.2.10' // the Kotlin that AGP's built-in Kotlin brings (see gradle-kotlin in the root build.gradle)
     kotlinxVersion = '1.7.3' // https://mvnrepository.com/artifact/org.jetbrains.kotlinx/kotlinx-coroutines-android
     // NOTE: Kotlin core 1.7.0 has 'resource android:attr/lStar not found' error (dialog black background bug)
     kotlinCoreXVersion = '1.12.0' // latest for sdk 17. https://mvnrepository.com/artifact/androidx.core/core-ktx
