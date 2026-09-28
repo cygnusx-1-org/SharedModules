@@ -113,6 +113,7 @@ project.ext {
     voiceOverlayVersion = '1.0.0-beta02' // https://github.com/algolia/voice-overlay-android
     apacheCommonsLangVersion = '3.10'
     firebaseCrashlyticsVersion = '17.2.2'
+    playServicesAuthVersion = '21.6.0' // the Authorization API (Identity.getAuthorizationClient), minSdk 23
     
     //duktapeVersion = '1.4.0' // js interpreter
     duktapeVersion = '1.1.0' // old one contains more *.so binaries and has smaller size than 1.2.0
