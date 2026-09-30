@@ -30,7 +30,8 @@ import com.liskovsoft.appupdatechecker2.utils.StreamUtils;
  * A fairly simple non-Market app update checker. Give it a URL pointing to a JSON file
  * and it will compare its version (from the manifest file) to the versions listed in the JSON.
  * If there are newer version(s), it will provide the changelog between the installed version
- * and the latest version. The updater checks against the versionCode, but displays the versionName.
+ * and the latest version. The updater compares the versionName (e.g. 32.56.3), dot-separated numbers;
+ * versionCode is optional and only passed on.
  *
  * While you can create your own OnAppUpdateListener to listen for new updates, OnUpdateDialog is
  * a handy implementation that displays a Dialog with a bulleted list and a button to do the upgrade.
@@ -58,7 +59,7 @@ import com.liskovsoft.appupdatechecker2.utils.StreamUtils;
  */
 public class AppVersionChecker {
     private final static String TAG = AppVersionChecker.class.getSimpleName();
-    private int mCurrentAppVersion;
+    private String mCurrentVersionName;
     private JSONObject mVersionInfo;
     private final Context mContext;
     private boolean mInProgress;
@@ -70,7 +71,7 @@ public class AppVersionChecker {
         mListener = listener;
 
         try {
-            mCurrentAppVersion = context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionCode;
+            mCurrentVersionName = context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName;
         } catch (final NameNotFoundException e) {
             String msg = "Cannot get version for self!";
             Log.e(TAG, msg);
@@ -111,11 +112,11 @@ public class AppVersionChecker {
 
         final ArrayList<String> changelog = new ArrayList<String>();
 
-        // keep a sorted map of versionCode to the version information objects.
+        // keep a sorted map of versionName to the version information objects.
         // Most recent is at the top.
-        final TreeMap<Integer, JSONObject> versionMap = new TreeMap<Integer, JSONObject>(new Comparator<Integer>() {
-            public int compare(Integer object1, Integer object2) {
-                return object2.compareTo(object1);
+        final TreeMap<String, JSONObject> versionMap = new TreeMap<String, JSONObject>(new Comparator<String>() {
+            public int compare(String object1, String object2) {
+                return compareVersions(object2, object1);
             }
         });
 
@@ -128,11 +129,15 @@ public class AppVersionChecker {
             final JSONObject versionInfo = jo.getJSONObject(versionName);
             versionInfo.put("versionName", versionName);
 
-            final int versionCode = versionInfo.getInt("versionCode");
-            versionMap.put(versionCode, versionInfo);
+            versionMap.put(versionName, versionInfo);
         }
-        final int latestVersionNumber = versionMap.firstKey();
-        final String latestVersionName = versionMap.get(latestVersionNumber).getString("versionName");
+
+        if (versionMap.isEmpty()) {
+            throw new JSONException("No versions in the update manifest");
+        }
+
+        final String latestVersionName = versionMap.firstKey();
+        final int latestVersionNumber = versionMap.get(latestVersionName).optInt("versionCode", 0);
 
         final Uri[] downloadUrls;
 
@@ -151,20 +156,22 @@ public class AppVersionChecker {
             mListener.processDownloadUrls(downloadUrls);
         }
 
-        if (mCurrentAppVersion > latestVersionNumber) {
+        final int comparison = compareVersions(mCurrentVersionName, latestVersionName);
+
+        if (comparison > 0) {
             Log.d(TAG, "We're newer than the latest published version (" + latestVersionName + "). Living in the future...");
             mListener.onChangelogReceived(true, latestVersionName, latestVersionNumber, null, downloadUrls);
             return;
         }
 
-        if (mCurrentAppVersion == latestVersionNumber) {
-            Log.d(TAG, "We're at the latest version (" + mCurrentAppVersion + ")");
+        if (comparison == 0) {
+            Log.d(TAG, "We're at the latest version (" + mCurrentVersionName + ")");
             mListener.onChangelogReceived(true, latestVersionName, latestVersionNumber, null, downloadUrls);
             return;
         }
 
         // construct the changelog. Newest entries are at the top.
-        for (final Entry<Integer, JSONObject> version : versionMap.headMap(mCurrentAppVersion).entrySet()) {
+        for (final Entry<String, JSONObject> version : versionMap.headMap(mCurrentVersionName).entrySet()) {
             final JSONObject versionInfo = version.getValue();
 
             JSONArray versionChangelog = versionInfo.optJSONArray("changelog_" + LocaleUtility.getCurrentLanguage(mContext));
@@ -182,6 +189,35 @@ public class AppVersionChecker {
         }
 
         mListener.onChangelogReceived(false, latestVersionName, latestVersionNumber, changelog, downloadUrls);
+    }
+
+    /**
+     * Compares versions like 32.56.3 part by part as numbers: 32.56.10 is newer than 32.56.9, and 32.56 is the same as
+     * 32.56.0. A part's leading digits count (3-beta is 3), a part without them is 0, and so is a null version.
+     */
+    static int compareVersions(String version1, String version2) {
+        String[] parts1 = version1 != null ? version1.trim().split("\\.") : new String[0];
+        String[] parts2 = version2 != null ? version2.trim().split("\\.") : new String[0];
+
+        for (int i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+            long part1 = i < parts1.length ? leadingNumber(parts1[i]) : 0;
+            long part2 = i < parts2.length ? leadingNumber(parts2[i]) : 0;
+
+            if (part1 != part2) {
+                return part1 < part2 ? -1 : 1;
+            }
+        }
+
+        return 0;
+    }
+
+    private static long leadingNumber(String part) {
+        int end = 0;
+        while (end < part.length() && end < 18 && Character.isDigit(part.charAt(end))) {
+            end++;
+        }
+
+        return end == 0 ? 0 : Long.parseLong(part.substring(0, end));
     }
 
     private Uri[] parse(JSONArray urls) {

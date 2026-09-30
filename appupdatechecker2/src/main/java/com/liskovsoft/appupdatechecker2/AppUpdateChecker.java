@@ -113,7 +113,8 @@ public class AppUpdateChecker implements AppVersionCheckerListener, AppDownloade
                 mLatestVersionName = latestVersionName;
                 mLatestVersionNumber = latestVersionNumber;
 
-                if (latestVersionNumber == mSettingsManager.getLatestVersionNumber() &&
+                // By the name: versions can share a versionCode (see AppVersionChecker)
+                if (Helpers.equals(latestVersionName, mSettingsManager.getLatestVersionName()) &&
                         checkApk(mSettingsManager.getApkPath())) {
                     mListener.onUpdateFound(latestVersionName, changelog, mSettingsManager.getApkPath());
                 } else {
