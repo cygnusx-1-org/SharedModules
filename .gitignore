@@ -27,4 +27,6 @@ tmp/
 fabric.properties
 *BAK.java
 
+bin/
+
 backup/
