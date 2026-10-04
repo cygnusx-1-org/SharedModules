@@ -30,3 +30,6 @@ fabric.properties
 bin/
 
 backup/
+
+# Java class files
+*.class
