@@ -10,6 +10,7 @@ import com.liskovsoft.sharedutils.helpers.FileHelpers;
 import com.liskovsoft.sharedutils.mylogger.Log;
 
 import java.io.File;
+import java.nio.charset.Charset;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -18,7 +19,8 @@ public class SharedPreferencesBase {
     private static final long PREF_MAX_SIZE_MB = 5;
     private final SharedPreferences mPrefs;
     private Context mContext;
-    private Map<String, Integer> mDataHashes;
+    // Guarded by itself: some data is written off the main thread
+    private final Map<String, Integer> mDataHashes = new HashMap<>();
 
     public SharedPreferencesBase(Context context, String prefName) {
         this(context, prefName, -1, false);
@@ -158,10 +160,27 @@ public class SharedPreferencesBase {
         return data;
     }
 
+    /**
+     * The data as it's stored, not decoded: big data can be decoded in parts, at once
+     */
+    @Nullable
+    final public byte[] getDataBytes(String key) {
+        byte[] bytes = FileHelpers.getFileBytes(getStorageFile(key));
+
+        if (bytes == null) {
+            String data = getData(key); // moves the data from the prefs to a file, as there's none yet
+
+            return data != null ? data.getBytes(Charset.forName("UTF-8")) : null;
+        }
+
+        return bytes;
+    }
+
     final public void setData(String key, String data) {
         if (checkData(key, data)) {
             File destination = getStorageFile(key);
-            FileHelpers.stringToFile(data, destination);
+            // Some data is written off the main thread, and the app can finish before such a write does
+            FileHelpers.stringToFileAtomic(data, destination);
         }
     }
 
@@ -183,18 +202,18 @@ public class SharedPreferencesBase {
      * Check that the data has been modified.
      */
     private boolean checkData(String key, String data) {
-        if (mDataHashes == null) {
-            mDataHashes = new HashMap<>();
-        }
-
-        Integer oldHashCode = mDataHashes.get(key);
+        // Outside the lock: a big string takes a while to hash
         int newHashCode = data != null ? data.hashCode() : -1;
 
-        if (oldHashCode != null && oldHashCode == newHashCode) {
-            return false;
-        }
+        synchronized (mDataHashes) {
+            Integer oldHashCode = mDataHashes.get(key);
 
-        mDataHashes.put(key, newHashCode);
+            if (oldHashCode != null && oldHashCode == newHashCode) {
+                return false;
+            }
+
+            mDataHashes.put(key, newHashCode);
+        }
 
         return true;
     }

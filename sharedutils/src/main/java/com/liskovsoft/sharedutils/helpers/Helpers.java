@@ -94,6 +94,9 @@ public final class Helpers {
     private static final String LEGACY_DATA_DELIM = ",";
     private static final String OBJ_DELIM = "&vi;";
     private static final Pattern URL_PREFIX = Pattern.compile("^[a-z.]+://.+$");
+    // Compiled once: String.matches compiles its regex on every call
+    private static final Pattern HAS_WORDS = Pattern.compile("^.*[^\\d\\W]+.*$");
+    private static final Pattern HAS_DIGITS = Pattern.compile("^.*[-+]?\\d*\\.?\\d+.*$");
     private static Random sRandom;
     // https://unicode-table.com/en/
     // https://www.compart.com/en/unicode/
@@ -441,19 +444,75 @@ public final class Helpers {
      * Any number, e.g. -1.0, 15
      */
     public static boolean isNumeric(String s) {
-        return s != null && s.matches("^[-+]?\\d*\\.?\\d+$");
+        // ^[-+]?\d*\.?\d+$ without a regex, which is slow for the thousands of numbers in the saved data
+        if (s == null) {
+            return false;
+        }
+
+        int length = s.length();
+        int start = getDigitsStart(s);
+
+        if (start >= length || !isDigit(s.charAt(length - 1))) {
+            return false;
+        }
+
+        boolean hasDot = false;
+
+        for (int i = start; i < length; i++) {
+            char c = s.charAt(i);
+
+            if (c == '.' && !hasDot) {
+                hasDot = true;
+            } else if (!isDigit(c)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public static boolean isInteger(String s) {
-        return s != null && s.matches("^[-+]?\\d+$");
+        // ^[-+]?\d+$ without a regex
+        if (s == null) {
+            return false;
+        }
+
+        int length = s.length();
+        int start = getDigitsStart(s);
+
+        if (start >= length) {
+            return false;
+        }
+
+        for (int i = start; i < length; i++) {
+            if (!isDigit(s.charAt(i))) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * After the sign, if any
+     */
+    private static int getDigitsStart(String s) {
+        return !s.isEmpty() && (s.charAt(0) == '-' || s.charAt(0) == '+') ? 1 : 0;
+    }
+
+    /**
+     * Like the regex \d on Android, which takes any decimal digit, e.g. ١٢ (Integer.parseInt reads them too)
+     */
+    private static boolean isDigit(char c) {
+        return Character.isDigit(c);
     }
 
     public static boolean hasWords(String s) {
-        return s != null && s.matches("^.*[^\\d\\W]+.*$");
+        return s != null && HAS_WORDS.matcher(s).matches();
     }
 
     public static boolean hasDigits(String s) {
-        return s != null && s.matches("^.*[-+]?\\d*\\.?\\d+.*$");
+        return s != null && HAS_DIGITS.matcher(s).matches();
     }
 
     /**
@@ -1520,7 +1579,36 @@ public final class Helpers {
             return new String[]{};
         }
 
-        return data.split(Pattern.quote(delim));
+        if (delim == null || delim.isEmpty()) {
+            return data.split(Pattern.quote(delim));
+        }
+
+        return splitLiteral(data, delim);
+    }
+
+    /**
+     * The same as String.split with the delimiter quoted, without a regex.<br/>
+     * Like String.split, it keeps a leading empty part and drops the trailing ones.
+     */
+    private static String[] splitLiteral(String data, String delim) {
+        List<String> parts = new ArrayList<>();
+        int start = 0;
+        int index;
+
+        while ((index = data.indexOf(delim, start)) != -1) {
+            parts.add(data.substring(start, index));
+            start = index + delim.length();
+        }
+
+        parts.add(data.substring(start));
+
+        int size = parts.size();
+
+        while (size > 0 && parts.get(size - 1).isEmpty()) {
+            size--;
+        }
+
+        return parts.subList(0, size).toArray(new String[0]);
     }
 
     public static String merge(String delim, Object... params) {

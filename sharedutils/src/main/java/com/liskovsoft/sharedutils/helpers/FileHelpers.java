@@ -13,6 +13,7 @@ import com.liskovsoft.sharedutils.mylogger.Log;
 import org.apache.commons.io.IOUtils;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.File;
 import java.io.FileInputStream;
@@ -24,6 +25,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.SequenceInputStream;
 import java.nio.charset.Charset;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
@@ -387,6 +389,36 @@ public class FileHelpers {
         streamToFile(toStream(is), destination);
     }
 
+    /**
+     * Written beside the destination, then renamed over it: a write cut short (the app killed mid-write) leaves the old contents,
+     * not a part of the new ones
+     */
+    public static void stringToFileAtomic(String content, File destination) {
+        if (content == null || destination == null) {
+            return;
+        }
+
+        File temp = new File(destination.getPath() + ".tmp");
+
+        try {
+            if (destination.getParentFile() != null) {
+                destination.getParentFile().mkdirs(); // create dirs tree
+            }
+
+            try (FileOutputStream out = new FileOutputStream(temp)) {
+                out.write(content.getBytes(Charset.forName("UTF8")));
+            }
+
+            if (!temp.renameTo(destination)) {
+                Log.e(TAG, "Can't rename %s to %s", temp.getAbsolutePath(), destination.getAbsolutePath());
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+            Log.e(TAG, e.getMessage());
+            temp.delete();
+        }
+    }
+
     public static String toString(InputStream in) {
         try {
             int bufsize = 8196;
@@ -640,17 +672,58 @@ public class FileHelpers {
 
     @Nullable
     public static String getFileContents(File source) {
+        // Read whole and decoded once, rather than char by char through a small buffer: big files are read at startup
+        byte[] bytes = getFileBytes(source);
+
+        return bytes != null ? new String(bytes, Charset.forName("UTF-8")) : null;
+    }
+
+    /**
+     * The file whole, not decoded
+     */
+    @Nullable
+    public static byte[] getFileBytes(File source) {
         if (source == null || !source.exists()) {
             return null;
         }
 
-        String result = null;
-        try {
-            result = toString(new FileInputStream(source));
+        try (FileInputStream in = new FileInputStream(source)) {
+            // Straight into an array of the file's size, no copies: big files are read at startup
+            byte[] bytes = new byte[(int) Math.min(source.length(), Integer.MAX_VALUE - 8)];
+            int length = 0;
+            int read;
+
+            while (length < bytes.length && (read = in.read(bytes, length, bytes.length - length)) != -1) {
+                length += read;
+            }
+
+            if (length < bytes.length) {
+                return Arrays.copyOf(bytes, length); // shorter than it was
+            }
+
+            byte[] buffer = new byte[64 * 1024];
+
+            if ((read = in.read(buffer)) == -1) {
+                return bytes;
+            }
+
+            // Longer than it was
+            ByteArrayOutputStream out = new ByteArrayOutputStream(length + read);
+            out.write(bytes, 0, length);
+
+            do {
+                out.write(buffer, 0, read);
+            } while ((read = in.read(buffer)) != -1);
+
+            return out.toByteArray();
         } catch (FileNotFoundException e) {
             Log.e(TAG, "File not found: %s", source.getAbsolutePath());
+        } catch (IOException e) {
+            e.printStackTrace();
+            Log.e(TAG, e.getMessage());
         }
-        return result;
+
+        return null;
     }
 
     /**
