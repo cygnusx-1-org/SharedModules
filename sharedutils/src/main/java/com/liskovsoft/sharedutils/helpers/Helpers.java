@@ -970,6 +970,9 @@ public final class Helpers {
         Intent intent = new Intent(Intent.ACTION_VIEW);
         intent.setDataAndType(file, "application/vnd.android.package-archive");
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION); // without this flag android returned a intent error!
+        // The same intent as the last install's only brings that installer task back (e.g. its DeleteStagedFileOnResult,
+        // which finishes at once), and the install doesn't start. Start it in a fresh task.
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK);
 
         try {
             context.getApplicationContext().startActivity(intent);
