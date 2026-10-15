@@ -209,7 +209,6 @@ final class OkHttpCommons {
      * Setting testMode configuration. If set as testMode, the connection will skip certification check<br/>
      * The error: CertPathValidatorException: Trust anchor for certification path not found
      */
-    @SuppressWarnings("deprecation")
     private static void configureToIgnoreCertificate(OkHttpClient.Builder builder) {
         if (VERSION.SDK_INT > 24) { // up to Android 7.0 (NOTE: 7.1 works fine)
             return;
@@ -245,8 +244,8 @@ final class OkHttpCommons {
             // Create an ssl socket factory with our all-trusting manager
             final SSLSocketFactory sslSocketFactory = new Tls12SocketFactory(sslContext.getSocketFactory());
 
-            //builder.sslSocketFactory(sslSocketFactory, (X509TrustManager)trustAllCerts[0]);
-            builder.sslSocketFactory(sslSocketFactory);
+            // OkHttp 4 can't extract the trust manager from a wrapped factory (OkHttpClient.build() fails)
+            builder.sslSocketFactory(sslSocketFactory, (X509TrustManager)trustAllCerts[0]);
             //builder.hostnameVerifier((hostname, session) -> true);
         } catch (Exception e) {
             Log.w(TAG, "Exception while configuring IgnoreSslCertificate: " + e, e);

@@ -534,7 +534,8 @@ public final class Helpers {
     }
 
     public static <T> Map<String, T> convertToObj(String jsonContent) {
-        Type type = new TypeToken<Map<String, T>>(){}.getType();
+        // Gson 2.11+ rejects a TypeToken that captures a type variable (T was read as Object anyway)
+        Type type = TypeToken.getParameterized(Map.class, String.class, Object.class).getType();
         Gson gson = new Gson();
         return gson.fromJson(jsonContent, type);
     }
