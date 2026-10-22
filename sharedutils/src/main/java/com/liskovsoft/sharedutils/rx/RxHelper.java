@@ -4,6 +4,7 @@ import androidx.annotation.Nullable;
 
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.sharedutils.mylogger.Log;
+import com.liskovsoft.sharedutils.okhttp.RequestScope;
 import io.reactivex.Completable;
 import io.reactivex.Observable;
 import io.reactivex.ObservableEmitter;
@@ -46,7 +47,8 @@ public class RxHelper {
             // an unbounded queue starves pool growth entirely.
             int queueCapacity = corePoolSize * 4;
 
-            ThreadPoolExecutor executor = new ThreadPoolExecutor(
+            // A disposed task leaves the queue at once rather than holding its place until a thread takes it
+            ThreadPoolExecutor executor = new RemoveOnCancelThreadPoolExecutor(
                     corePoolSize,
                     maxPoolSize,
                     60L,
@@ -270,11 +272,22 @@ public class RxHelper {
     }
 
     public static <T> Observable<T> create(ObservableOnSubscribe<T> source) {
-        return setup(Observable.create(wrapOnSubscribe(source)));
+        return setup(createCancellable(source));
     }
 
     public static <T> Observable<T> createLong(ObservableOnSubscribe<T> source) {
-        return setupLong(Observable.create(wrapOnSubscribe(source)));
+        return setupLong(createCancellable(source));
+    }
+
+    /**
+     * Disposing cancels the requests the source makes (see RequestScope).
+     * The interrupt of a dispose doesn't reach a request that waits on a connect: it holds the thread to the timeout.
+     */
+    private static <T> Observable<T> createCancellable(ObservableOnSubscribe<T> source) {
+        return Observable.defer(() -> {
+            RequestScope scope = new RequestScope();
+            return Observable.create(wrapOnSubscribe(source, scope)).doOnDispose(scope::cancel);
+        });
     }
 
     public static <T> Observable<T> fromCallable(Callable<T> callback) {
@@ -381,8 +394,10 @@ public class RxHelper {
      * Catch errors thrown after Observer is disposed.
      * Such errors cannot be caught anywhere else.
      */
-    private static <T> ObservableOnSubscribe<T> wrapOnSubscribe(ObservableOnSubscribe<T> source) {
+    private static <T> ObservableOnSubscribe<T> wrapOnSubscribe(ObservableOnSubscribe<T> source, RequestScope scope) {
         return emitter -> {
+            RequestScope previous = scope.enter();
+
             try {
                 source.subscribe(emitter);
             } catch (Exception e) {
@@ -396,6 +411,8 @@ public class RxHelper {
                 } else {
                     throw e;
                 }
+            } finally {
+                scope.exit(previous);
             }
         };
     }

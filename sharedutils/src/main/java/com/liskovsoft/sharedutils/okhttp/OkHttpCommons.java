@@ -5,6 +5,7 @@ import com.liskovsoft.sharedutils.BuildConfig;
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.sharedutils.mylogger.Log;
 import com.liskovsoft.sharedutils.okhttp.interceptors.RateLimitInterceptor;
+import com.liskovsoft.sharedutils.okhttp.interceptors.RequestScopeInterceptor;
 import com.liskovsoft.sharedutils.okhttp.interceptors.UnzippingInterceptor;
 import com.liskovsoft.sharedutils.prefs.GlobalPreferences;
 import com.localebro.okhttpprofiler.OkHttpProfilerInterceptor;
@@ -290,6 +291,7 @@ final class OkHttpCommons {
         setupConnectionParams(okBuilder);
         configureToIgnoreCertificate(okBuilder);
         fixStreamResetError(okBuilder); // Should I move the line to Retrofit utils?
+        enableRequestScope(okBuilder);
         enableDecompression(okBuilder);
         //enableRateLimiter(okBuilder)
 
@@ -303,6 +305,13 @@ final class OkHttpCommons {
         // Disable cache (could help with dlfree error on Eltex)
         // Spoiler: no this won't help with dlfree error on Eltex
         okBuilder.cache(null);
+    }
+
+    /**
+     * Disposing an RxHelper task cancels its calls (see RequestScope)
+     */
+    private static void enableRequestScope(OkHttpClient.Builder builder) {
+        builder.addInterceptor(new RequestScopeInterceptor());
     }
 
     /**
