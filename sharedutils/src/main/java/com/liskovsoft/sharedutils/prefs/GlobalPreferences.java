@@ -29,6 +29,7 @@ final public class GlobalPreferences extends SharedPreferencesBase {
     private static final String PREFERRED_COUNTRY_DATA = "preferred_country_data";
     private static final String ENABLE_CHANNELS_SERVICE = "enable_channels_service";
     private static final String PREFERRED_DNS_TYPE = "preferred_dns_type";
+    private static final String IPV6_TEST_ENABLED = "ipv6_test_enabled";
     private static final String CONTENT_BLOCK_ALT_SERVER = "content_block_alt_server";
     private static final String IS_24_HOUR_LOCALE_ENABLED = "is_24_hour_locale_enabled";
     private static final List<Runnable> sCallbacks = new CopyOnWriteArrayList<>(); // fix ConcurrentModificationException
@@ -156,6 +157,18 @@ final public class GlobalPreferences extends SharedPreferencesBase {
 
     public void setPreferredDnsType(int dnsType) {
         putInt(PREFERRED_DNS_TYPE, dnsType);
+    }
+
+    /**
+     * IPv6 is tested once an app run, and left out till the app restarts when it doesn't connect (see Ipv6CheckDns).
+     * Read at each lookup, so a switch applies without a restart.
+     */
+    public boolean isIpv6TestEnabled() {
+        return getBoolean(IPV6_TEST_ENABLED, true);
+    }
+
+    public void setIpv6TestEnabled(boolean enable) {
+        putBoolean(IPV6_TEST_ENABLED, enable);
     }
 
     public boolean isContentBlockAltServerEnabled() {

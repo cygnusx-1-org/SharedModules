@@ -41,7 +41,8 @@ import java.util.concurrent.TimeUnit;
 
 final class OkHttpCommons {
     private static final String TAG = OkHttpCommons.class.getSimpleName();
-    public static final long CONNECT_TIMEOUT_MS = 20_000;
+    // An address that doesn't answer costs this before the next one is tried (e.g. IPv6 that goes nowhere, see Ipv6CheckDns)
+    public static final long CONNECT_TIMEOUT_MS = 5_000;
     public static final long READ_TIMEOUT_MS = 20_000;
     public static final long WRITE_TIMEOUT_MS = 20_000;
     public static boolean enableProfiler = true;
@@ -272,19 +273,22 @@ final class OkHttpCommons {
         // NOTE: replaces the DNS above
         if (GlobalPreferences.sInstance != null) {
             int dnsType = GlobalPreferences.sInstance.getPreferredDnsType();
+            Dns dns = Dns.SYSTEM;
 
             switch (dnsType) {
                 case GlobalPreferences.DNS_TYPE_IPV4:
                     // Cause hangs and crashes (especially on Android 8 devices or Dune HD)
                     // NOTE: useful only on api <= 19
                     //forceIPv4Dns(okBuilder);
-                    preferIPv4Dns(okBuilder); // alt method
+                    dns = preferIPv4Dns(); // alt method
                     break;
                 case GlobalPreferences.DNS_TYPE_GOOGLE:
                     // May help with 'java.net.ProtocolException: Too many follow-up requests: 21'
-                    forceGoogleDns(okBuilder);
+                    dns = forceGoogleDns();
                     break;
             }
+
+            okBuilder.dns(new Ipv6CheckDns(dns));
         }
         setupProxy(okBuilder); // proxy configured in system props
         setupConnectionFix(okBuilder);
@@ -349,9 +353,9 @@ final class OkHttpCommons {
         okBuilder.addInterceptor(logging);
     }
 
-    private static void preferIPv4Dns(OkHttpClient.Builder okBuilder) {
-        okBuilder.dns(new OkHttpDNSSelector(OkHttpDNSSelector.IPvMode.IPV4_FIRST));
-        //okBuilder.dns(new PreferIpv4Dns());
+    private static Dns preferIPv4Dns() {
+        return new OkHttpDNSSelector(OkHttpDNSSelector.IPvMode.IPV4_FIRST);
+        //return new PreferIpv4Dns();
     }
 
     private static void forceIPv4Dns(OkHttpClient.Builder okBuilder) {
@@ -364,8 +368,8 @@ final class OkHttpCommons {
         });
     }
 
-    private static void forceGoogleDns(OkHttpClient.Builder okBuilder) {
-        okBuilder.dns(PublicDnsResolver.google());
+    private static Dns forceGoogleDns() {
+        return PublicDnsResolver.google();
     }
 
     /**
