@@ -63,6 +63,13 @@ final class Ipv6CheckDns implements Dns {
         return ipv4Addresses;
     }
 
+    /**
+     * The test is on and IPv6 didn't connect: the lookups give IPv4 only
+     */
+    static boolean isIpv6Disabled() {
+        return Boolean.FALSE.equals(sIsIpv6Working) && isEnabled();
+    }
+
     private static boolean isEnabled() {
         GlobalPreferences prefs = GlobalPreferences.sInstance;
 

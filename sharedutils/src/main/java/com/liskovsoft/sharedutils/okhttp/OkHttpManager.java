@@ -156,6 +156,14 @@ public class OkHttpManager {
         return mClient;
     }
 
+    /**
+     * IPv6 doesn't connect this app run, and the test is on (see GlobalPreferences.isIpv6TestEnabled): only IPv4 is to be used.
+     * The client's lookups leave IPv6 out. The network engines that can't, have to be replaced with this client.
+     */
+    public static boolean isIpv6Disabled() {
+        return Ipv6CheckDns.isIpv6Disabled();
+    }
+
     public static long getConnectTimeoutMs() {
         return OkHttpCommons.CONNECT_TIMEOUT_MS;
     }
