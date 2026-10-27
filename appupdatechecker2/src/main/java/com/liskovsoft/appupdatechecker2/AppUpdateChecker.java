@@ -134,7 +134,11 @@ public class AppUpdateChecker implements AppVersionCheckerListener, AppDownloade
 
     @Override
     public void onApkDownloaded(String path) {
+        // Report it, or the listener waits forever (e.g. a broken file, or another package's apk)
         if (!checkApk(path)) {
+            String msg = "Downloaded apk isn't an update of " + mContext.getPackageName();
+            Log.e(TAG, msg);
+            mListener.onUpdateError(new IllegalStateException(msg));
             return;
         }
 
