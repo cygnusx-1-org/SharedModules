@@ -390,8 +390,8 @@ public class FileHelpers {
     }
 
     /**
-     * Written beside the destination, then renamed over it: a write cut short (the app killed mid-write) leaves the old contents,
-     * not a part of the new ones
+     * Written beside the destination, then renamed over it: a write cut short (the app killed mid-write, or the power cut) leaves
+     * the old contents, not a part of the new ones
      */
     public static void stringToFileAtomic(String content, File destination) {
         if (content == null || destination == null) {
@@ -407,6 +407,8 @@ public class FileHelpers {
 
             try (FileOutputStream out = new FileOutputStream(temp)) {
                 out.write(content.getBytes(Charset.forName("UTF8")));
+                // On the disk before the rename: else a power cut can keep the rename and lose the contents, e.g. of the accounts
+                out.getFD().sync();
             }
 
             if (!temp.renameTo(destination)) {
