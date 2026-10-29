@@ -5,6 +5,8 @@ import android.content.Context;
 import android.net.Uri;
 import android.os.Build.VERSION;
 import android.os.Environment;
+import android.system.Os;
+import android.system.OsConstants;
 import android.text.TextUtils;
 
 import androidx.annotation.Nullable;
@@ -16,6 +18,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.File;
+import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -413,11 +416,38 @@ public class FileHelpers {
 
             if (!temp.renameTo(destination)) {
                 Log.e(TAG, "Can't rename %s to %s", temp.getAbsolutePath(), destination.getAbsolutePath());
+                return;
             }
+
+            // The rename on the disk too: else a power cut can lose it, and the old contents come back
+            syncDir(destination.getParentFile());
         } catch (IOException e) {
             e.printStackTrace();
             Log.e(TAG, e.getMessage());
             temp.delete();
+        }
+    }
+
+    private static void syncDir(@Nullable File dir) {
+        if (dir == null) {
+            return;
+        }
+
+        FileDescriptor fd = null;
+
+        try {
+            fd = Os.open(dir.getPath(), OsConstants.O_RDONLY, 0);
+            Os.fsync(fd);
+        } catch (Exception e) { // ErrnoException, or none in a unit test
+            Log.e(TAG, "Can't sync %s: %s", dir.getPath(), e.getMessage());
+        } finally {
+            if (fd != null) {
+                try {
+                    Os.close(fd);
+                } catch (Exception e) {
+                    Log.e(TAG, "Can't close %s: %s", dir.getPath(), e.getMessage());
+                }
+            }
         }
     }
 
