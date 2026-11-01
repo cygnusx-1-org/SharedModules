@@ -290,7 +290,9 @@ final class OkHttpCommons {
 
             okBuilder.dns(new Ipv6CheckDns(dns));
         }
-        setupProxy(okBuilder); // proxy configured in system props
+        // Resolves the proxy host on the caller's thread: the client is first made on the main thread at startup (NetworkOnMainThreadException).
+        // It also freezes the proxy for the client's lifetime. OkHttp's default ProxySelector reads the same system props at each connection.
+        //setupProxy(okBuilder); // proxy configured in system props
         setupConnectionFix(okBuilder);
         setupConnectionParams(okBuilder);
         configureToIgnoreCertificate(okBuilder);
