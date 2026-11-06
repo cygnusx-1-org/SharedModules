@@ -7,7 +7,6 @@ import com.liskovsoft.sharedutils.mylogger.Log;
 import com.liskovsoft.sharedutils.okhttp.interceptors.RateLimitInterceptor;
 import com.liskovsoft.sharedutils.okhttp.interceptors.RequestScopeInterceptor;
 import com.liskovsoft.sharedutils.okhttp.interceptors.UnzippingInterceptor;
-import com.liskovsoft.sharedutils.prefs.GlobalPreferences;
 import com.localebro.okhttpprofiler.OkHttpProfilerInterceptor;
 
 import okhttp3.CipherSuite;
@@ -271,25 +270,8 @@ final class OkHttpCommons {
         //}
 
         // NOTE: replaces the DNS above
-        if (GlobalPreferences.sInstance != null) {
-            int dnsType = GlobalPreferences.sInstance.getPreferredDnsType();
-            Dns dns = Dns.SYSTEM;
-
-            switch (dnsType) {
-                case GlobalPreferences.DNS_TYPE_IPV4:
-                    // Cause hangs and crashes (especially on Android 8 devices or Dune HD)
-                    // NOTE: useful only on api <= 19
-                    //forceIPv4Dns(okBuilder);
-                    dns = preferIPv4Dns(); // alt method
-                    break;
-                case GlobalPreferences.DNS_TYPE_GOOGLE:
-                    // May help with 'java.net.ProtocolException: Too many follow-up requests: 21'
-                    dns = forceGoogleDns();
-                    break;
-            }
-
-            okBuilder.dns(new Ipv6CheckDns(dns));
-        }
+        // The DNS chosen is read at each lookup: the client is built once a run, and a switch (e.g. by the player's error fixing) applies at once
+        okBuilder.dns(new Ipv6CheckDns(new PreferredDns()));
         // Resolves the proxy host on the caller's thread: the client is first made on the main thread at startup (NetworkOnMainThreadException).
         // It also freezes the proxy for the client's lifetime. OkHttp's default ProxySelector reads the same system props at each connection.
         //setupProxy(okBuilder); // proxy configured in system props
@@ -355,11 +337,6 @@ final class OkHttpCommons {
         okBuilder.addInterceptor(logging);
     }
 
-    private static Dns preferIPv4Dns() {
-        return new OkHttpDNSSelector(OkHttpDNSSelector.IPvMode.IPV4_FIRST);
-        //return new PreferIpv4Dns();
-    }
-
     private static void forceIPv4Dns(OkHttpClient.Builder okBuilder) {
         okBuilder.dns(hostname -> {
             List<InetAddress> lookup = Dns.SYSTEM.lookup(hostname);
@@ -368,10 +345,6 @@ final class OkHttpCommons {
             );
             return filter != null ? filter : lookup;
         });
-    }
-
-    private static Dns forceGoogleDns() {
-        return PublicDnsResolver.google();
     }
 
     /**
