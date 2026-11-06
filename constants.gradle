@@ -20,7 +20,7 @@ project.ext {
     // - Backup/restore can access to the external directory
     // - Disabled auto start of the background service (e.g. remote control service)
     targetSdkVersion = 34 // 29 latest with lecacy storage access, 27 - latest with mouse dpad emulaton
-    compileSdkVersion = 35 // work-runtime 2.10+ requires 35
+    compileSdkVersion = 37 // okhttp 5.5+ requires 37, 5.4 36; work-runtime 2.10+ 35
     buildToolsVersion = '30.0.3'
     //gradleVersion = '6.9.1' // https://developer.android.com/studio/releases/gradle-plugin#updating-gradle
     //androidGradleVersion = '4.0.0+' // last version compatible with IntellJ 2020.3
@@ -29,8 +29,10 @@ project.ext {
     // 1.5+ declares android:exported on its test activities (required when targeting API 31+)
     testXSupportVersion = '1.7.0'
     testXExtJunitVersion = '1.3.0' // androidx.test.ext:junit has its own numbering
-    kotlinVersion = '2.2.10' // the Kotlin that AGP's built-in Kotlin brings (see gradle-kotlin in the root build.gradle)
-    kotlinxVersion = '1.10.2' // 1.11+ requires kotlin-stdlib 2.2.20+ (above kotlinVersion). https://mvnrepository.com/artifact/org.jetbrains.kotlinx/kotlinx-coroutines-android
+    // The Kotlin compiler (kotlin-gradle-plugin in the root build.gradle, above the 2.2.10 that AGP's built-in Kotlin brings) and the forced kotlin-stdlib.
+    // okhttp 5.3+ requires kotlin-stdlib 2.2.21+.
+    kotlinVersion = '2.2.21'
+    kotlinxVersion = '1.10.2' // 1.11+ requires kotlin-stdlib 2.2.20+. https://mvnrepository.com/artifact/org.jetbrains.kotlinx/kotlinx-coroutines-android
     // NOTE: Kotlin core 1.7.0 has 'resource android:attr/lStar not found' error (dialog black background bug)
     kotlinCoreXVersion = '1.13.1' // 1.15+ requires compileSdk 35+. https://mvnrepository.com/artifact/androidx.core/core-ktx
     coreXVersion = '1.13.1' // keep in step with kotlinCoreXVersion
@@ -43,7 +45,7 @@ project.ext {
     interpolatorXVersion = '1.0.0'
     cardviewXVersion = '1.0.0'
     legacySupportV4XVersion = '1.0.0'
-    annotationXVersion = '1.9.1' // webkit and tvprovider require 1.8.1+, cronet-okhttp 1.9.1
+    annotationXVersion = '1.10.0' // webkit and tvprovider require 1.8.1+, cronet-okhttp 1.9.1, okhttp 5.4+ 1.10.0
     recyclerviewXVersion = '1.3.2' // 1.4.0 requires compileSdk 35+
     preferenceXVersion = '1.1.0' // Note: 1.2.0 Requires multiple androidx.lifecycle libs
     mediaXVersion = '1.7.0' // exoplayer fix
@@ -85,7 +87,8 @@ project.ext {
     jsonPathVersion = '2.9.0'
     
     ottoVersion = '1.3.8'
-    okhttpVersion = '4.12.0' // requires API 21+
+    okhttpVersion = '5.5.1' // requires kotlin-stdlib 2.2.21+ (kotlinVersion) and androidx.annotation 1.10.0+
+    // okhttpVersion = '4.12.0' // Latest 4.x
     // okhttpVersion = '3.12.13' // Latest version with Android 4+ support
     okhttpProfilerVersion = '1.0.8' // Android 5+!!! (fix: force global okhttp)
     okhttpBrotliVersion = okhttpVersion
