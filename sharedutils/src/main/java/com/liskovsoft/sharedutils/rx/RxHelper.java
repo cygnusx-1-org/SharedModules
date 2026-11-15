@@ -47,14 +47,15 @@ public class RxHelper {
             // an unbounded queue starves pool growth entirely.
             int queueCapacity = corePoolSize * 4;
 
-            // A disposed task leaves the queue at once rather than holding its place until a thread takes it
+            // A disposed task leaves the queue at once rather than holding its place until a thread takes it. One the full pool can't
+            // take runs on an io thread, never on the caller's: that may be the main thread (see OverflowPolicy).
             ThreadPoolExecutor executor = new RemoveOnCancelThreadPoolExecutor(
                     corePoolSize,
                     maxPoolSize,
                     60L,
                     TimeUnit.SECONDS,
                     new LinkedBlockingQueue<>(queueCapacity),
-                    new ThreadPoolExecutor.CallerRunsPolicy()
+                    new OverflowPolicy()
             );
             executor.allowCoreThreadTimeOut(true);
             sCachedScheduler = Schedulers.from(executor);
