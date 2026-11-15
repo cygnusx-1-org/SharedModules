@@ -1,6 +1,7 @@
 package com.liskovsoft.sharedutils.okhttp;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.VisibleForTesting;
 
 import okhttp3.Dns;
 import org.xbill.DNS.ARecord;
@@ -20,6 +21,12 @@ import java.util.List;
  * Queries AAAA first, then A — avoids redirect loops on some CDNs
  */
 public class PublicDnsResolver implements Dns {
+    private static final int PROBE_TIMEOUT_MS = 500;
+    private static final Object sLock = new Object();
+    static final Probe DEFAULT_PROBE = PublicDnsResolver::isReachable;
+    private static volatile Probe sProbe = DEFAULT_PROBE;
+    // Null till probed
+    private static volatile Boolean sIsIpv6Reachable;
     private final Resolver primaryResolver;
     private final Resolver fallbackResolver;
 
@@ -44,7 +51,7 @@ public class PublicDnsResolver implements Dns {
         List<InetAddress> ipv4Addresses = queryWithFallback(hostname, Type.A);
 
         // IPv6 first (an essential part)
-        if (isReachable(ipv6Addresses)) {
+        if (isIpv6Reachable(ipv6Addresses)) {
             result.addAll(ipv6Addresses);
             result.addAll(ipv4Addresses);
         } else {
@@ -60,17 +67,53 @@ public class PublicDnsResolver implements Dns {
         return result;
     }
 
-    private boolean isReachable(List<InetAddress> addresses) {
-        for (InetAddress address : addresses) {
-            try {
-                if (address.isReachable(500)) {
-                    return true;
-                }
-            } catch (IOException ignored) {}
-            break;
+    /**
+     * IPv6 answers here: probed once an app run, with the first lookup that has IPv6 addresses (as Ipv6CheckDns tests it). A probe
+     * at each lookup cost each new connection the probe's timeout where IPv6 goes nowhere: on the emulator, 0.50-0.54 s of each
+     * lookup (2026-11-15), so a seek's new connections played again ~0.5 s later. A run's lookups also keep one order now, rather
+     * than an order per probe.
+     */
+    @VisibleForTesting
+    static boolean isIpv6Reachable(List<InetAddress> ipv6Addresses) {
+        if (ipv6Addresses.isEmpty()) {
+            return false;
         }
 
-        return false;
+        Boolean isReachable = sIsIpv6Reachable;
+
+        if (isReachable != null) {
+            return isReachable;
+        }
+
+        // The other lookups wait for the probe, rather than probe too
+        synchronized (sLock) {
+            if (sIsIpv6Reachable == null) {
+                sIsIpv6Reachable = sProbe.isReachable(ipv6Addresses.get(0));
+            }
+
+            return sIsIpv6Reachable;
+        }
+    }
+
+    private static boolean isReachable(InetAddress address) {
+        try {
+            return address.isReachable(PROBE_TIMEOUT_MS);
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    @VisibleForTesting
+    static void resetIpv6Probe(Probe probe) {
+        synchronized (sLock) {
+            sProbe = probe;
+            sIsIpv6Reachable = null;
+        }
+    }
+
+    @VisibleForTesting
+    interface Probe {
+        boolean isReachable(InetAddress address);
     }
 
     private List<InetAddress> getReachable(List<InetAddress> addresses) {
