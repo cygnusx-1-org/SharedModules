@@ -144,7 +144,6 @@ project.ext {
     chatkitVersion = 'v0.4.1'
     gotevSpeechVersion = '1.6.2' // The previous one: '1.1.7' (the latest with minSdk 17)
 
-    phoenixVersion = '3.0.0'
     netcipherVersion = '2.1.0'
     
     florianingerlRegexVersion = '1.1.11'
