@@ -16,12 +16,26 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
- * Queries AAAA first, then A — avoids redirect loops on some CDNs
+ * Gives the AAAA addresses first, then the A ones, when IPv6 answers — avoids redirect loops on some CDNs. Both are asked at once:
+ * one after the other, each new connection waited for two round trips to the server (V8RCD1SA: 274-923 ms of each first connect, against
+ * 99-157 ms to connect). Not AAAA while IPv6 doesn't connect (see Ipv6CheckDns): its addresses would be dropped.
  */
 public class PublicDnsResolver implements Dns {
     private static final int PROBE_TIMEOUT_MS = 500;
+    /**
+     * The AAAA queries, while the lookup's thread asks for A. Daemons: none keeps the app's process up.
+     */
+    private static final ExecutorService sAaaaQueries = Executors.newCachedThreadPool(runnable -> {
+        Thread thread = new Thread(runnable, "PublicDnsResolver AAAA");
+        thread.setDaemon(true);
+        return thread;
+    });
     private static final Object sLock = new Object();
     static final Probe DEFAULT_PROBE = PublicDnsResolver::isReachable;
     private static volatile Probe sProbe = DEFAULT_PROBE;
@@ -46,9 +60,18 @@ public class PublicDnsResolver implements Dns {
     @Override
     public List<InetAddress> lookup(@NonNull String hostname) throws UnknownHostException {
         List<InetAddress> result = new ArrayList<>();
+        List<InetAddress> ipv6Addresses;
+        List<InetAddress> ipv4Addresses;
 
-        List<InetAddress> ipv6Addresses = queryWithFallback(hostname, Type.AAAA);
-        List<InetAddress> ipv4Addresses = queryWithFallback(hostname, Type.A);
+        if (Ipv6CheckDns.isIpv6Disabled()) {
+            ipv4Addresses = queryWithFallback(hostname, Type.A);
+            // Only when there's nothing else, as before (see Ipv6CheckDns#lookup)
+            ipv6Addresses = ipv4Addresses.isEmpty() ? queryWithFallback(hostname, Type.AAAA) : new ArrayList<>();
+        } else {
+            Future<List<InetAddress>> ipv6Query = sAaaaQueries.submit(() -> queryWithFallback(hostname, Type.AAAA));
+            ipv4Addresses = queryWithFallback(hostname, Type.A);
+            ipv6Addresses = getAddresses(ipv6Query);
+        }
 
         // IPv6 first (an essential part)
         if (isIpv6Reachable(ipv6Addresses)) {
@@ -65,6 +88,21 @@ public class PublicDnsResolver implements Dns {
         }
 
         return result;
+    }
+
+    /**
+     * What the query found: none when it failed, or the lookup was cancelled meanwhile (its thread interrupted, e.g. by OkHttp)
+     */
+    private static List<InetAddress> getAddresses(Future<List<InetAddress>> query) {
+        try {
+            return query.get();
+        } catch (InterruptedException e) {
+            query.cancel(true);
+            Thread.currentThread().interrupt();
+            return new ArrayList<>();
+        } catch (ExecutionException e) {
+            return new ArrayList<>();
+        }
     }
 
     /**
