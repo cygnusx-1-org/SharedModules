@@ -62,6 +62,13 @@ public final class RequestScope {
         call.cancel();
     }
 
+    /**
+     * The task was cancelled (e.g. its observer disposed, see RxHelper#create): nobody waits for what it gets any more
+     */
+    public synchronized boolean isCancelled() {
+        return mIsCancelled;
+    }
+
     public void cancel() {
         List<Call> calls;
 

@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -34,6 +35,12 @@ import java.util.concurrent.TimeUnit;
 public class RxHelper {
     private static final String TAG = RxHelper.class.getSimpleName();
     private static @Nullable Scheduler sCachedScheduler;
+    private static volatile @Nullable ThreadPoolExecutor sCachedExecutor;
+    /**
+     * Of the tasks the user waits on (see #fromCallableNow): a thread each, idle ones kept a minute
+     */
+    private static @Nullable Scheduler sNowScheduler;
+    private static volatile @Nullable ThreadPoolExecutor sNowExecutor;
 
     private static Scheduler getCachedScheduler() {
         if (sCachedScheduler == null) {
@@ -58,10 +65,50 @@ public class RxHelper {
                     new OverflowPolicy()
             );
             executor.allowCoreThreadTimeOut(true);
+            sCachedExecutor = executor;
             sCachedScheduler = Schedulers.from(executor);
         }
 
         return sCachedScheduler;
+    }
+
+    private static synchronized Scheduler getNowScheduler() {
+        if (sNowScheduler == null) {
+            // As Executors.newCachedThreadPool: no queue, a thread for each task that finds none idle. Disposed, a task is cancelled as
+            // the pool's are: its thread interrupted, its requests cancelled (see RequestScope).
+            ThreadPoolExecutor executor = new ThreadPoolExecutor(0, Integer.MAX_VALUE, 60L, TimeUnit.SECONDS, new SynchronousQueue<>());
+            sNowExecutor = executor;
+            sNowScheduler = Schedulers.from(executor);
+        }
+
+        return sNowScheduler;
+    }
+
+    /**
+     * What the threads of the tasks are busy with right now, e.g. "pool 4 of 4 busy, 6 queued, 1 now": a task given to the pool waits
+     * for one of its threads (see #getCachedScheduler), one the user waits on doesn't (see #fromCallableNow). Null before any task ran.
+     */
+    @Nullable
+    public static synchronized String describeLoad() {
+        ThreadPoolExecutor pool = sCachedExecutor;
+        ThreadPoolExecutor now = sNowExecutor;
+
+        if (pool == null && now == null) {
+            return null;
+        }
+
+        StringBuilder result = new StringBuilder();
+
+        if (pool != null) {
+            result.append("pool ").append(pool.getActiveCount()).append(" of ").append(pool.getPoolSize()).append(" busy, ")
+                    .append(pool.getQueue().size()).append(" queued");
+        }
+
+        if (now != null) {
+            result.append(result.length() > 0 ? ", " : "").append(now.getActiveCount()).append(" now");
+        }
+
+        return result.toString();
     }
 
     public static void disposeActions(Disposable... actions) {
@@ -297,6 +344,17 @@ public class RxHelper {
         return fromNullable(callback);
     }
 
+    /**
+     * As {@link #fromCallable}, on a thread of its own: a task the user waits on (e.g. the formats of the video opened) doesn't queue
+     * behind the pool's others. The pool takes 4 at a time on most devices and 16 more before it grows: a video opened as the app
+     * started waited 7.4-13.4 s for one of its threads before its fetch began (CGHFJ3BZ).
+     */
+    public static <T> Observable<T> fromCallableNow(Callable<T> callback) {
+        return createCancellable(nullableSource(callback))
+                .subscribeOn(getNowScheduler())
+                .observeOn(AndroidSchedulers.mainThread());
+    }
+
     @SafeVarargs
     private static <T> Observable<T> fromMultiCallable(Callable<T>... callbacks) {
         return fromMultiNullable(callbacks);
@@ -314,7 +372,11 @@ public class RxHelper {
     }
 
     private static <T> Observable<T> fromNullable(Callable<T> callback) {
-        return create(emitter -> {
+        return create(nullableSource(callback));
+    }
+
+    private static <T> ObservableOnSubscribe<T> nullableSource(Callable<T> callback) {
+        return emitter -> {
             T result = callback.call();
 
             if (result != null) {
@@ -326,7 +388,7 @@ public class RxHelper {
                 onError(emitter, "fromNullable result is null");
                 Log.e(TAG, "fromNullable result is null");
             }
-        });
+        };
     }
 
     @SafeVarargs

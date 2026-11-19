@@ -16,6 +16,8 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -41,8 +43,32 @@ public class PublicDnsResolver implements Dns {
     private static volatile Probe sProbe = DEFAULT_PROBE;
     // Null till probed
     private static volatile Boolean sIsIpv6Reachable;
+    /**
+     * An answer is kept no longer than this, whatever its records' TTL
+     */
+    private static final long MAX_CACHE_MS = 10 * 60 * 1_000;
     private final Resolver primaryResolver;
     private final Resolver fallbackResolver;
+    /**
+     * By name and type: the addresses got, kept for their records' TTL, as the system's resolver keeps them. Each new connection of the
+     * player asked the server again: 43 of 70 spent 111-436 ms on it (9E8WV5TE). An empty answer isn't kept.
+     */
+    private final Map<String, Answer> mCache = new ConcurrentHashMap<>();
+
+    private static final class Answer {
+        final List<InetAddress> addresses;
+        /**
+         * The least of its records', in seconds
+         */
+        final long ttlSec;
+        final long expiresAtMs;
+
+        Answer(List<InetAddress> addresses, long ttlSec, long nowMs) {
+            this.addresses = addresses;
+            this.ttlSec = ttlSec;
+            this.expiresAtMs = nowMs + Math.min(ttlSec * 1_000, MAX_CACHE_MS);
+        }
+    }
 
     private PublicDnsResolver(String primaryDns, String fallbackDns, int timeoutSec) {
         try {
@@ -167,14 +193,29 @@ public class PublicDnsResolver implements Dns {
     }
 
     private List<InetAddress> queryWithFallback(String hostname, int type) {
-        List<InetAddress> addresses = query(hostname, type, primaryResolver);
-        if (addresses.isEmpty()) {
-            addresses = query(hostname, type, fallbackResolver);
+        String key = type + " " + hostname;
+        long nowMs = System.nanoTime() / 1_000_000;
+        Answer cached = mCache.get(key);
+
+        if (cached != null && nowMs < cached.expiresAtMs) {
+            return new ArrayList<>(cached.addresses);
         }
-        return addresses;
+
+        Answer answer = query(hostname, type, primaryResolver, nowMs);
+        if (answer.addresses.isEmpty()) {
+            answer = query(hostname, type, fallbackResolver, nowMs);
+        }
+
+        if (!answer.addresses.isEmpty() && answer.ttlSec > 0) {
+            mCache.put(key, answer);
+        } else {
+            mCache.remove(key);
+        }
+
+        return new ArrayList<>(answer.addresses);
     }
 
-    private List<InetAddress> query(String hostname, int type, Resolver resolver) {
+    private Answer query(String hostname, int type, Resolver resolver, long nowMs) {
         try {
             Lookup lookup = new Lookup(hostname, type);
             lookup.setResolver(resolver);
@@ -182,21 +223,24 @@ public class PublicDnsResolver implements Dns {
             // Qualified: the Record of okhttp3.Dns (5.5+) hides an imported one in this class
             org.xbill.DNS.Record[] records = lookup.run();
             List<InetAddress> addresses = new ArrayList<>();
+            long ttlSec = -1;
 
             if (records != null) {
                 for (org.xbill.DNS.Record record : records) {
                     if (record instanceof ARecord && type == Type.A) {
                         addresses.add(((ARecord) record).getAddress());
+                        ttlSec = ttlSec < 0 ? record.getTTL() : Math.min(ttlSec, record.getTTL());
                     } else if (record instanceof AAAARecord && type == Type.AAAA) {
                         addresses.add(((AAAARecord) record).getAddress());
+                        ttlSec = ttlSec < 0 ? record.getTTL() : Math.min(ttlSec, record.getTTL());
                     }
                 }
             }
 
-            return addresses;
+            return new Answer(addresses, ttlSec, nowMs);
         } catch (Throwable ignored) {
             // ExceptionInInitializerError
-            return new ArrayList<>();
+            return new Answer(new ArrayList<>(), -1, nowMs);
         }
     }
 
