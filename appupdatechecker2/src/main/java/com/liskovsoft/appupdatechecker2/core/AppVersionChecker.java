@@ -120,10 +120,12 @@ public class AppVersionChecker {
             }
         });
 
+        JSONObject packageInfo = null;
+
         for (final Iterator<String> i = jo.keys(); i.hasNext(); ) {
             final String versionName = i.next();
             if (versionName.equals("package")) {
-                mVersionInfo = jo.getJSONObject(versionName);
+                packageInfo = jo.getJSONObject(versionName);
                 continue;
             }
             final JSONObject versionInfo = jo.getJSONObject(versionName);
@@ -135,6 +137,13 @@ public class AppVersionChecker {
         if (versionMap.isEmpty()) {
             throw new JSONException("No versions in the update manifest");
         }
+
+        // Its download URLs: a manifest without them has nothing to download, and the ones of a check before aren't its
+        if (packageInfo == null) {
+            throw new JSONException("No package in the update manifest");
+        }
+
+        mVersionInfo = packageInfo;
 
         final String latestVersionName = versionMap.firstKey();
         final int latestVersionNumber = versionMap.get(latestVersionName).optInt("versionCode", 0);
