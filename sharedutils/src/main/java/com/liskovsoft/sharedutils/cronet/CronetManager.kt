@@ -9,10 +9,56 @@ import org.chromium.net.impl.NativeCronetProvider
 
 object CronetManager {
     private val TAG = CronetManager::class.java.simpleName
+    /**
+     * Of the engine's making: one thread makes it, the others wait for it (see warmUp)
+     */
+    private val lock = Any()
+    @Volatile
     private var engine: CronetEngine? = null
+    // Under the lock
+    private var isWarmUpStarted = false
+
+    /**
+     * Makes the engine ahead, on a thread of its own: making it loads its native library, which the run's first video did on the main
+     * thread while it opened (6EZTNXBF: 833 ms of a start's media source, 16-38 ms for the others). Once a run. A call for the engine
+     * meanwhile waits for it, no longer than it took to make it itself.
+     */
+    @JvmStatic
+    fun warmUp(context: Context) {
+        synchronized(lock) {
+            if (engine != null || isWarmUpStarted) {
+                return
+            }
+
+            isWarmUpStarted = true
+        }
+
+        val appContext = context.applicationContext
+
+        Thread({
+            try {
+                getEngine(appContext)
+            } catch (e: Throwable) {
+                // Made when it's asked for, as before: what fails there is told there
+                Log.e(TAG, "Can't make the engine ahead: " + e.message)
+            }
+        }, "CronetWarmUp").apply {
+            isDaemon = true
+            start()
+        }
+    }
 
     @JvmStatic
     fun getEngine(context: Context): CronetEngine? {
+        engine?.let { return it }
+
+        return synchronized(lock) { makeEngine(context) }
+    }
+
+    /**
+     * Under the lock
+     */
+    private fun makeEngine(context: Context): CronetEngine? {
         if (engine == null) {
             //val wrapper = CronetEngineWrapper(context)
             //engine = wrapper.cronetEngine
