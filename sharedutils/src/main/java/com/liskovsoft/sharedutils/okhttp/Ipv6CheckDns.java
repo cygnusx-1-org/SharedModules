@@ -70,6 +70,13 @@ final class Ipv6CheckDns implements Dns {
         return Boolean.FALSE.equals(sIsIpv6Working) && isEnabled();
     }
 
+    /**
+     * What the test found: null till it ran, and while it's off (the lookups give IPv6 then)
+     */
+    static Boolean getIpv6Working() {
+        return isEnabled() ? sIsIpv6Working : null;
+    }
+
     private static boolean isEnabled() {
         GlobalPreferences prefs = GlobalPreferences.sInstance;
 

@@ -3,9 +3,13 @@ package com.liskovsoft.sharedutils.okhttp;
 import androidx.annotation.NonNull;
 import androidx.annotation.VisibleForTesting;
 
+import androidx.annotation.Nullable;
+
 import okhttp3.Dns;
+import okhttp3.HttpUrl;
 import org.xbill.DNS.ARecord;
 import org.xbill.DNS.AAAARecord;
+import org.xbill.DNS.Address;
 import org.xbill.DNS.Lookup;
 import org.xbill.DNS.Resolver;
 import org.xbill.DNS.SimpleResolver;
@@ -14,7 +18,10 @@ import org.xbill.DNS.Type;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -24,12 +31,19 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 /**
+ * Asks public DNS servers, over UDP or HTTPS (see GlobalPreferences.DNS_PROTOCOL_*), rather than the system's DNS.<br/>
  * Gives the AAAA addresses first, then the A ones, when IPv6 answers — avoids redirect loops on some CDNs. Both are asked at once:
  * one after the other, each new connection waited for two round trips to the server (V8RCD1SA: 274-923 ms of each first connect, against
  * 99-157 ms to connect). Not AAAA while IPv6 doesn't connect (see Ipv6CheckDns): its addresses would be dropped.
  */
 public class PublicDnsResolver implements Dns {
     private static final int PROBE_TIMEOUT_MS = 500;
+    private static final long SERVER_TIMEOUT_MS = 5_000;
+    /**
+     * The servers of a query wait no longer than this together, as Google's two did (5 s each): four that don't answer (e.g. UDP 53
+     * blocked) waited 20 s before the system's DNS, each query
+     */
+    private static final long QUERY_TIMEOUT_MS = 10_000;
     /**
      * The AAAA queries, while the lookup's thread asks for A. Daemons: none keeps the app's process up.
      */
@@ -47,8 +61,11 @@ public class PublicDnsResolver implements Dns {
      * An answer is kept no longer than this, whatever its records' TTL
      */
     private static final long MAX_CACHE_MS = 10 * 60 * 1_000;
-    private final Resolver primaryResolver;
-    private final Resolver fallbackResolver;
+    /**
+     * Asked in turn, from the one that answered last, while each fails (e.g. the IPv4 ones on a network without IPv4)
+     */
+    private final List<Resolver> mServers;
+    private volatile int mAnswering;
     /**
      * By name and type: the addresses got, kept for their records' TTL, as the system's resolver keeps them. Each new connection of the
      * player asked the server again: 43 of 70 spent 111-436 ms on it (9E8WV5TE). An empty answer isn't kept.
@@ -58,28 +75,155 @@ public class PublicDnsResolver implements Dns {
     private static final class Answer {
         final List<InetAddress> addresses;
         /**
+         * No answer came (e.g. a timeout, no route to the server, a server failure): another server may give one. An answer
+         * without addresses (the name or its type doesn't exist) is the same on each.
+         */
+        final boolean isFailed;
+        /**
          * The least of its records', in seconds
          */
         final long ttlSec;
         final long expiresAtMs;
 
-        Answer(List<InetAddress> addresses, long ttlSec, long nowMs) {
+        Answer(List<InetAddress> addresses, long ttlSec, long nowMs, boolean isFailed) {
             this.addresses = addresses;
             this.ttlSec = ttlSec;
             this.expiresAtMs = nowMs + Math.min(ttlSec * 1_000, MAX_CACHE_MS);
+            this.isFailed = isFailed;
+        }
+
+        static Answer failed(long nowMs) {
+            return new Answer(new ArrayList<>(), -1, nowMs, true);
         }
     }
 
-    private PublicDnsResolver(String primaryDns, String fallbackDns, int timeoutSec) {
-        try {
-            primaryResolver = new SimpleResolver(primaryDns);
-            primaryResolver.setTimeout(timeoutSec);
-
-            fallbackResolver = new SimpleResolver(fallbackDns);
-            fallbackResolver.setTimeout(timeoutSec);
-        } catch (UnknownHostException e) {
-            throw new RuntimeException("Cannot create DNS resolvers", e);
+    @VisibleForTesting
+    PublicDnsResolver(List<Resolver> servers) {
+        if (servers.isEmpty()) {
+            throw new IllegalArgumentException("No DNS server");
         }
+
+        mServers = new ArrayList<>(servers);
+        Duration timeout = Duration.ofMillis(Math.min(SERVER_TIMEOUT_MS, QUERY_TIMEOUT_MS / mServers.size()));
+
+        for (Resolver server : mServers) {
+            server.setTimeout(timeout);
+        }
+    }
+
+    /**
+     * Asked over UDP, in this order
+     *
+     * @param addresses IPv4 or IPv6 addresses: the ones that aren't are left out
+     * @return null when none is
+     */
+    @Nullable
+    public static PublicDnsResolver plain(List<String> addresses) {
+        Map<String, Resolver> servers = plainServers(addresses);
+
+        return servers.isEmpty() ? null : new PublicDnsResolver(new ArrayList<>(servers.values()));
+    }
+
+    /**
+     * Each address's server, asked over UDP, by the address as it's given (trimmed), in its order: the ones that aren't addresses are
+     * left out
+     */
+    @NonNull
+    static Map<String, Resolver> plainServers(List<String> addresses) {
+        Map<String, Resolver> servers = new LinkedHashMap<>();
+
+        for (String address : addresses) {
+            InetAddress server = parseAddress(address);
+
+            if (server != null) {
+                servers.put(address.trim(), new SimpleResolver(server));
+            }
+        }
+
+        return servers;
+    }
+
+    /**
+     * Asked over HTTPS
+     *
+     * @param url an https URL (see isDohUrl)
+     * @param bootstrapAddresses where its host is (IPv4 or IPv6 addresses), or none to look it up with the system's DNS
+     * @return null when the URL isn't one
+     */
+    @Nullable
+    public static PublicDnsResolver doh(String url, List<String> bootstrapAddresses) {
+        Resolver server = dohServer(url, bootstrapAddresses);
+
+        return server != null ? new PublicDnsResolver(Collections.singletonList(server)) : null;
+    }
+
+    /**
+     * The server asked over HTTPS: null when the URL isn't one (see doh)
+     */
+    @Nullable
+    static Resolver dohServer(String url, List<String> bootstrapAddresses) {
+        HttpUrl serverUrl = parseDohUrl(url);
+
+        if (serverUrl == null) {
+            return null;
+        }
+
+        List<InetAddress> bootstrap = new ArrayList<>();
+
+        for (String address : bootstrapAddresses) {
+            InetAddress server = parseAddress(address);
+
+            if (server != null) {
+                bootstrap.add(server);
+            }
+        }
+
+        return new OkHttpDohResolver(serverUrl, bootstrap);
+    }
+
+    /**
+     * An IPv4 address: not a host name, nor an IPv6 address (a custom server is IPv4 only)
+     */
+    public static boolean isIpv4Address(@Nullable String address) {
+        if (address == null || address.trim().isEmpty()) {
+            return false;
+        }
+
+        try {
+            // A literal only: never a lookup
+            Address.getByAddress(address.trim(), Address.IPv4);
+            return true;
+        } catch (UnknownHostException e) {
+            return false;
+        }
+    }
+
+    /**
+     * An https URL, e.g. https://dns.example/dns-query
+     */
+    public static boolean isDohUrl(@Nullable String url) {
+        return parseDohUrl(url) != null;
+    }
+
+    @Nullable
+    private static InetAddress parseAddress(@Nullable String address) {
+        if (address == null || address.trim().isEmpty()) {
+            return null;
+        }
+
+        try {
+            // A literal only: never a lookup
+            return Address.getByAddress(address.trim());
+        } catch (UnknownHostException e) {
+            return null;
+        }
+    }
+
+    @Nullable
+    private static HttpUrl parseDohUrl(@Nullable String url) {
+        HttpUrl result = url != null ? HttpUrl.parse(url.trim()) : null;
+
+        return result != null && result.isHttps() ? result : null;
     }
 
     @NonNull
@@ -201,9 +345,17 @@ public class PublicDnsResolver implements Dns {
             return new ArrayList<>(cached.addresses);
         }
 
-        Answer answer = query(hostname, type, primaryResolver, nowMs);
-        if (answer.addresses.isEmpty()) {
-            answer = query(hostname, type, fallbackResolver, nowMs);
+        Answer answer = Answer.failed(nowMs);
+        int first = mAnswering;
+
+        for (int i = 0; i < mServers.size(); i++) {
+            int index = (first + i) % mServers.size();
+            answer = query(hostname, type, mServers.get(index), nowMs);
+
+            if (!answer.isFailed) {
+                mAnswering = index;
+                break;
+            }
         }
 
         if (!answer.addresses.isEmpty() && answer.ttlSec > 0) {
@@ -237,19 +389,20 @@ public class PublicDnsResolver implements Dns {
                 }
             }
 
-            return new Answer(addresses, ttlSec, nowMs);
+            // A timeout, a network error or a server failure (e.g. SERVFAIL): TRY_AGAIN. A bad query: UNRECOVERABLE.
+            int result = lookup.getResult();
+            boolean isFailed = result == Lookup.TRY_AGAIN || result == Lookup.UNRECOVERABLE;
+
+            return new Answer(addresses, ttlSec, nowMs, isFailed && addresses.isEmpty());
         } catch (Throwable ignored) {
             // ExceptionInInitializerError
-            return new Answer(new ArrayList<>(), -1, nowMs);
+            return Answer.failed(nowMs);
         }
     }
 
-    public static Dns google() {
-        return new PublicDnsResolver("8.8.8.8", "8.8.4.4", 5);
-    }
-
-    public static Dns cloudflare() {
-        return new PublicDnsResolver("1.1.1.1", "1.0.0.1", 5);
+    @VisibleForTesting
+    int getAnsweringServer() {
+        return mAnswering;
     }
 }
 

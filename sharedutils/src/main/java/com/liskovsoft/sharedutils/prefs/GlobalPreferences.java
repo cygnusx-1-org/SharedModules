@@ -15,6 +15,21 @@ final public class GlobalPreferences extends SharedPreferencesBase {
     public static final int DNS_TYPE_SYSTEM = 0;
     public static final int DNS_TYPE_IPV4 = 1;
     public static final int DNS_TYPE_GOOGLE = 2;
+    public static final int DNS_TYPE_CLOUDFLARE = 3;
+    public static final int DNS_TYPE_QUAD9 = 4;
+    public static final int DNS_TYPE_ADGUARD = 5;
+    /**
+     * The servers set in the settings (see getCustomDnsPrimary, getCustomDnsSecondary, getCustomDohUrl)
+     */
+    public static final int DNS_TYPE_CUSTOM = 6;
+    /**
+     * Unencrypted, over UDP
+     */
+    public static final int DNS_PROTOCOL_PLAIN = 0;
+    /**
+     * DNS-over-HTTPS (RFC 8484)
+     */
+    public static final int DNS_PROTOCOL_DOH = 1;
     public static final String PLAYLIST_TYPE_RECOMMENDATIONS = "playlist_type_recommendations";
     public static final String PLAYLIST_TYPE_SUBSCRIPTIONS = "playlist_type_subscriptions";
     public static final String PLAYLIST_TYPE_HISTORY = "playlist_type_history";
@@ -29,6 +44,11 @@ final public class GlobalPreferences extends SharedPreferencesBase {
     private static final String PREFERRED_COUNTRY_DATA = "preferred_country_data";
     private static final String ENABLE_CHANNELS_SERVICE = "enable_channels_service";
     private static final String PREFERRED_DNS_TYPE = "preferred_dns_type";
+    private static final String PREFERRED_DNS_PROTOCOL = "preferred_dns_protocol";
+    private static final String CUSTOM_DNS_PRIMARY = "custom_dns_primary";
+    private static final String CUSTOM_DNS_SECONDARY = "custom_dns_secondary";
+    private static final String CUSTOM_DOH_URL = "custom_doh_url";
+    private static final String DNS_FIX_ENABLED = "dns_fix_enabled";
     private static final String IPV6_TEST_ENABLED = "ipv6_test_enabled";
     private static final String CONTENT_BLOCK_ALT_SERVER = "content_block_alt_server";
     private static final String IS_24_HOUR_LOCALE_ENABLED = "is_24_hour_locale_enabled";
@@ -157,6 +177,64 @@ final public class GlobalPreferences extends SharedPreferencesBase {
 
     public void setPreferredDnsType(int dnsType) {
         putInt(PREFERRED_DNS_TYPE, dnsType);
+    }
+
+    /**
+     * How the public DNS servers are asked (see DNS_PROTOCOL_*). The system's DNS has its own (e.g. Android's Private DNS).
+     */
+    public int getPreferredDnsProtocol() {
+        return getInt(PREFERRED_DNS_PROTOCOL, DNS_PROTOCOL_PLAIN);
+    }
+
+    public void setPreferredDnsProtocol(int protocol) {
+        putInt(PREFERRED_DNS_PROTOCOL, protocol);
+    }
+
+    /**
+     * The first of the custom DNS servers asked over UDP: an IPv4 address, null when not set
+     */
+    @Nullable
+    public String getCustomDnsPrimary() {
+        return getString(CUSTOM_DNS_PRIMARY, null);
+    }
+
+    public void setCustomDnsPrimary(@Nullable String address) {
+        putString(CUSTOM_DNS_PRIMARY, address);
+    }
+
+    /**
+     * The custom DNS server asked when the primary doesn't answer: an IPv4 address, null when not set
+     */
+    @Nullable
+    public String getCustomDnsSecondary() {
+        return getString(CUSTOM_DNS_SECONDARY, null);
+    }
+
+    public void setCustomDnsSecondary(@Nullable String address) {
+        putString(CUSTOM_DNS_SECONDARY, address);
+    }
+
+    /**
+     * The custom DNS-over-HTTPS server, e.g. https://dns.example/dns-query, null when not set
+     */
+    @Nullable
+    public String getCustomDohUrl() {
+        return getString(CUSTOM_DOH_URL, null);
+    }
+
+    public void setCustomDohUrl(@Nullable String url) {
+        putString(CUSTOM_DOH_URL, url);
+    }
+
+    /**
+     * The player's error fixing may switch the DNS to Google's when its lookups fail, whatever DNS is chosen
+     */
+    public boolean isDnsFixEnabled() {
+        return getBoolean(DNS_FIX_ENABLED, true);
+    }
+
+    public void setDnsFixEnabled(boolean enable) {
+        putBoolean(DNS_FIX_ENABLED, enable);
     }
 
     /**
